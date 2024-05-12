@@ -736,6 +736,7 @@ add_custom_target(pp
         qe_pp_plotrho_exe
         qe_pp_pmw_exe
         qe_pp_projwfc_exe
+        qe_pp_chargedens_fromfile_exe
         qe_pp_pw2wannier90_exe
         qe_pp_pw2critic_exe
         qe_pp_wfck2r_exe

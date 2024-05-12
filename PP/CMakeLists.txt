@@ -220,6 +220,23 @@ target_link_libraries(qe_pp_projwfc_exe
         qe_lapack)
 
 ###########################################################
+# chargedens_fromfile.x
+###########################################################
+set(src_chargedens_fromfile_x src/chargedens_fromfile.f90)
+# qe_enable_cuda_fortran("${src_chargedens_fromfile_x}")
+qe_add_executable(qe_pp_chargedens_fromfile_exe ${src_chargedens_fromfile_x})
+set_target_properties(qe_pp_chargedens_fromfile_exe PROPERTIES OUTPUT_NAME chargedens_fromfile.x)
+target_link_libraries(qe_pp_chargedens_fromfile_exe
+    PRIVATE
+        qe_pw
+        qe_modules
+        qe_pp
+        qe_lax
+        qe_fftx
+        qe_upflib
+        qe_lapack)
+
+###########################################################
 # pw2wannier90.x
 ###########################################################
 set(src_pw2wannier90_x src/pw2wannier90.f90)
@@ -510,6 +527,7 @@ qe_install_targets(
     qe_pp_plotrho_exe
     qe_pp_pmw_exe
     qe_pp_projwfc_exe
+    qe_pp_chargedens_fromfile_exe
     qe_pp_pw2wannier90_exe
     qe_pp_pw2critic_exe
     qe_pp_wfck2r_exe
