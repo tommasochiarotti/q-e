@@ -77,7 +77,8 @@ all : tldeps open_grid.x average.x bands.x band_interpolation.x dos.x epsilon.x 
       wannier_ham.x wannier_plot.x molecularpdos.x \
       pw2bgw.x wfck2r.x fermi_velocity.x fermi_proj.x ppacf.x pprism.x \
       d3hess.x wannier2pw.x \
-      oscdft_pp.x oscdft_et.x
+      oscdft_pp.x oscdft_et.x \
+			chargedens_fromfile.x
 
 
 libpp.a : $(PPOBJS) 
@@ -157,6 +158,11 @@ pp.x : postproc.o libpp.a $(MODULES)
 projwfc.x : projwfc.o libpp.a $(MODULES) 
 	$(LD) $(LDFLAGS) -o $@ \
 		projwfc.o libpp.a $(MODULES) $(QELIBS)
+	- ( cd ../../bin ; ln -fs ../PP/src/$@ . )
+
+chargedens_fromfile.x : chargedens_fromfile.o libpp.a $(MODULES) 
+	$(LD) $(LDFLAGS) -o $@ \
+		chargedens_fromfile.o libpp.a $(MODULES) $(QELIBS)
 	- ( cd ../../bin ; ln -fs ../PP/src/$@ . )
 
 pw2wannier90.x : pw2wannier90.o libpp.a $(MODULES) 
