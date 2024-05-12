@@ -1,4 +1,4 @@
-_chargedens_fromfileMODULE module_chargedens_fromfile
+MODULE module_chargedens_fromfile
   !
   PRIVATE
   !
@@ -171,12 +171,12 @@ PROGRAM do_chargedens_fromfile
   USE control_flags,        ONLY : gamma_only
   USE noncollin_module,     ONLY : noncolin, npol, lspinorb, nspin_mag
   USE upf_spinorb,          ONLY : fcoef
-  USE io_files,             ONLY : restart_dir,iunmix
+  USE io_files,             ONLY : restart_dir
   USE pw_restart_new,       ONLY : read_collected_wfc
   USE becmod,               ONLY : calbec
   USE uspp_init,            ONLY : init_us_2
   USE mp_pools,             ONLY : me_pool, nproc_pool, my_pool_id, npool, &
-                                   inter_pool_comm, intra_pool_comm, root_pool
+                                   inter_pool_comm, intra_pool_comm
   USE mp,                   ONLY : mp_bcast, mp_sum
   USE io_rho_xml,           ONLY : write_scf,read_scf
   USE matrix_inversion
@@ -197,7 +197,6 @@ PROGRAM do_chargedens_fromfile
   COMPLEX(DP), ALLOCATABLE :: density_mat(:,:,:,:) !ib,ib',is,ik 
   COMPLEX(DP), ALLOCATABLE :: psic_nc_nbnd(:,:,:),psicpw_nbnd(:,:),evc_new(:,:),evc_dot_evc_new(:,:),evc_dot_evc_new_inv(:,:)
   COMPLEX(DP), ALLOCATABLE :: density_mat_ik(:,:),density_mat_ik_new(:,:) 
-  LOGICAL :: exst
   !
   INTEGER, EXTERNAL :: find_free_unit
   !
@@ -332,7 +331,6 @@ PROGRAM do_chargedens_fromfile
           ENDIF
           CALL invfft ('Wave', psic, dffts)
           psic_nc_nbnd(:,1,ibnd) = psic
-          psic_nc_nbnd(:,nspin,ibnd) = psic
         ENDIF
         !
         ! case of density_mat = identity
@@ -352,12 +350,9 @@ PROGRAM do_chargedens_fromfile
       ! change rho
       DO ibnd_prime = 1, nbnd
         DO ibnd = 1, nbnd
-            DO is=1,nspin
-              rhor_aux(:,current_spin) = rhor_aux(:,current_spin) + & 
-                dble(psic_nc_nbnd(:,is,ibnd) * wk(ik) * density_mat(ibnd,ibnd_prime,ik,current_spin)  & 
-                                                      * conjg(psic_nc_nbnd(:,is,ibnd_prime))) / omega 
-               ! probably wrong treatment of spin
-            ENDDO
+            rhor_aux(:,current_spin) = rhor_aux(:,current_spin) + & 
+              dble(psic_nc_nbnd(:,1,ibnd) * wk(ik) * density_mat(ibnd,ibnd_prime,ik,current_spin)  & 
+                                                    * conjg(psic_nc_nbnd(:,1,ibnd_prime))) / omega 
         ENDDO
       ENDDO
     ENDDO
@@ -386,17 +381,13 @@ PROGRAM do_chargedens_fromfile
   if (mix_rho) then
     if (.not. change_rho) CALL rho_g2r (dfftp, rho%of_g, rhor_aux)
     ! change outdir manually
-    ! outdir_svd = tmp_dir
-    ! tmp_dir = trimcheck(outdir_old)
-    ! CALL read_scf ( rho, nspin, gamma_only )
-    ! CALL rho_g2r (dfftp, rho%of_g, rho%of_r)
-    ! rhor_aux(:,:) = (1.0d0 - mixing_beta_chgdens) * rho%of_r(:,:) + mixing_beta_chgdens * rhor_aux(:,:)
-    ! tmp_dir = outdir_svd
-    ! CALL read_scf ( rho, nspin, gamma_only )
-    CALL open_mix_file( iunmix, 'mix_chargedens_fromfile', exst )
-    IF ( my_pool_id == root_pool ) CALL mix_rho( rho, rhoin, &
-            mixing_beta, dr2, tr2_min, iter, nmix, iunmix, conv_elec )
-    !
+    outdir_svd = tmp_dir
+    tmp_dir = trimcheck(outdir_old)
+    CALL read_scf ( rho, nspin, gamma_only )
+    CALL rho_g2r (dfftp, rho%of_g, rho%of_r)
+    rhor_aux(:,:) = (1.0d0 - mixing_beta_chgdens) * rho%of_r(:,:) + mixing_beta_chgdens * rhor_aux(:,:)
+    tmp_dir = outdir_svd
+    CALL read_scf ( rho, nspin, gamma_only )
   endif
   !
   ! ... bring rho(r) to G-space (use psic as work array)
