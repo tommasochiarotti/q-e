@@ -264,20 +264,24 @@ PROGRAM do_chargedens_fromfile
     ALLOCATE(density_mat(nbnd,nbnd,nks,nspin))
     ALLOCATE (psic_nc_nbnd(dfftp%nnr,nspin,nbnd))
     becsum(:,:,:) = 0.d0
-    open(unit=iun,file=trim(filename_rho),action="read",status="old",iostat = ios)
-    IF (ios /= 0) CALL errore ('do_chargedens_fromfile', 'reading densityMat.data', abs (ios) )
-    do ik = 1,nks
-      read(iun,*)
-      do ibnd = 1, nbnd
+    if (ionode) then
+      open(unit=iun,file=trim(filename_rho),action="read",status="old",iostat = ios)
+      IF (ios /= 0) CALL errore ('do_chargedens_fromfile', 'reading densityMat.data', abs (ios) )
+      do ik = 1,nks
         read(iun,*)
-        do ibnd_prime = 1,nbnd
-          read(iun,"(E23.16,x,E23.16)") dens_real, dens_im 
-          density_mat(ibnd,ibnd_prime,ik,1) = cmplx(dens_real,dens_im,kind=DP)
+        do ibnd = 1, nbnd
+          read(iun,*)
+          do ibnd_prime = 1,nbnd
+            read(iun,"(E23.16,x,E23.16)") dens_real, dens_im 
+            density_mat(ibnd,ibnd_prime,ik,1) = cmplx(dens_real,dens_im,kind=DP)
+          enddo
         enddo
       enddo
-    enddo
-    density_mat(:,:,:,nspin) = density_mat(:,:,:,1)
-    close(iun)
+      density_mat(:,:,:,nspin) = density_mat(:,:,:,1)
+      close(iun)
+    endif
+    CALL mp_bcast( density_mat,              ionode_id, intra_image_comm )
+    !
     ! here an up down reading is necessary if non collinear
     !
     if (nspin /= 1) CALL errore ('do_chargedens_fromfile', 'not implemented for 2 spins', abs (nspin) ) 
