@@ -162,7 +162,7 @@ PROGRAM do_chargedens_fromfile
   USE klist,                ONLY : lgauss, degauss, ngauss, nks, wk, xk, &
                                    nkstot, ngk, igk_k
   USE lsda_mod,             ONLY : lsda, nspin, current_spin, isk
-  USE scf,                  ONLY : rho
+  USE scf,                  ONLY : rho, rhoz_or_updw
   USE symme,                ONLY : sym_rho, sym_rho_init, sym_rho_deallocate
   USE uspp,                 ONLY : nkb, vkb, becsum, nhtol, nhtoj, indv
   USE uspp_param,           ONLY : upf, nh, nhm
@@ -194,7 +194,7 @@ PROGRAM do_chargedens_fromfile
   REAL(DP):: mixing_beta_chgdens,dens_real, dens_im
   REAL(DP), ALLOCATABLE :: rbecp(:,:), rhor_aux(:,:),lambda(:)
   COMPLEX(DP), ALLOCATABLE :: becp(:,:), becp_nc(:,:,:), be1(:,:), be2(:,:)
-  COMPLEX(DP), ALLOCATABLE :: density_mat(:,:,:,:) !ib,ib',is,ik 
+  COMPLEX(DP), ALLOCATABLE :: density_mat(:,:,:)!ib,ib',ik 
   COMPLEX(DP), ALLOCATABLE :: psic_nc_nbnd(:,:,:),psicpw_nbnd(:,:),evc_new(:,:),evc_dot_evc_new(:,:),evc_dot_evc_new_inv(:,:)
   COMPLEX(DP), ALLOCATABLE :: density_mat_ik(:,:),density_mat_ik_new(:,:) 
   !
@@ -260,31 +260,35 @@ PROGRAM do_chargedens_fromfile
   iun = find_free_unit() 
   ALLOCATE (rhor_aux(dfftp%nnr,nspin))
   rhor_aux(:,:) = 0.d0  
+  IF (lsda) THEN
+    do ik = 1,nks/2
+      IF (isk (ik) /= 1)       CALL errore ('do_chargedens_fromfile', 'isk /= 1 for first half points', abs (isk (ik)) ) 
+      IF (isk (ik+nks/2) /= 2) CALL errore ('do_chargedens_fromfile', 'isk /= 2 for second half points', abs (isk (ik)) ) 
+    enddo
+  ENDIF
   if (change_rho) then
-    ALLOCATE(density_mat(nbnd,nbnd,nks,nspin))
+    ALLOCATE(density_mat(nbnd,nbnd,nks))
     ALLOCATE (psic_nc_nbnd(dfftp%nnr,nspin,nbnd))
     becsum(:,:,:) = 0.d0
     if (ionode) then
       open(unit=iun,file=trim(filename_rho),action="read",status="old",iostat = ios)
-      IF (ios /= 0) CALL errore ('do_chargedens_fromfile', 'reading densityMat.data', abs (ios) )
       do ik = 1,nks
         read(iun,*)
         do ibnd = 1, nbnd
           read(iun,*)
           do ibnd_prime = 1,nbnd
             read(iun,"(E23.16,x,E23.16)") dens_real, dens_im 
-            density_mat(ibnd,ibnd_prime,ik,1) = cmplx(dens_real,dens_im,kind=DP)
+            density_mat(ibnd,ibnd_prime,ik) = cmplx(dens_real,dens_im,kind=DP)
           enddo
         enddo
       enddo
-      density_mat(:,:,:,nspin) = density_mat(:,:,:,1)
       close(iun)
     endif
     CALL mp_bcast( density_mat,              ionode_id, intra_image_comm )
     !
     ! here an up down reading is necessary if non collinear
     !
-    if (nspin /= 1) CALL errore ('do_chargedens_fromfile', 'not implemented for 2 spins', abs (nspin) ) 
+    ! if (nspin /= 1) CALL errore ('do_chargedens_fromfile', 'not implemented for 2 spins', abs (nspin) ) 
     IF (gamma_only) THEN
        ALLOCATE (rbecp(nkb,nbnd))
     ELSE
@@ -355,7 +359,7 @@ PROGRAM do_chargedens_fromfile
       DO ibnd_prime = 1, nbnd
         DO ibnd = 1, nbnd
             rhor_aux(:,current_spin) = rhor_aux(:,current_spin) + & 
-              dble(psic_nc_nbnd(:,1,ibnd) * wk(ik) * density_mat(ibnd,ibnd_prime,ik,current_spin)  & 
+              dble(psic_nc_nbnd(:,1,ibnd) * wk(ik) * density_mat(ibnd,ibnd_prime,ik)  & 
                                                     * conjg(psic_nc_nbnd(:,1,ibnd_prime))) / omega 
         ENDDO
       ENDDO
@@ -379,6 +383,10 @@ PROGRAM do_chargedens_fromfile
     ! symmetrize rho
     !
     call symmetrize_rhor(rhor_aux)
+    !
+    rho%of_r(:,:) = rhor_aux(:,:)
+    IF ( nspin == 2 ) CALL rhoz_or_updw( rho, 'r', '->rhoz' )
+    rhor_aux(:,:) = rho%of_r(:,:)
     !
   endif
   ! mix if needed
