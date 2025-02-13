@@ -937,6 +937,27 @@ SUBROUTINE electrons_scf ( printout, exxen )
            CALL v_of_rho( rho,rho_core,rhog_core, &
                           ehart, etxc, vtxc, eth, etotefield, charge, v )
            !
+           !====== HACK HERE =============================================
+           ! I need Hartree and Exchange-correlation contributions to be
+           ! evaluated with input density. 
+           ! The call to v_of_rho seems necessary to update the 
+           ! charge correctly ...
+           ! Notice that Forces may not be corrected in a 
+           ! consistent way after this hack
+           !        matteo
+           !
+           !CALL v_of_rho( rho,rho_core,rhog_core, &
+           !               ehart, etxc, vtxc, eth, etotefield, charge, v )
+           CALL v_of_rho( rhoin,rho_core,rhog_core, &
+                   ehart, etxc, vtxc, eth, etotefield, charge, v )
+           !
+           ! I also need deband to be computed with input density ...
+           ! I am just taking the value used for the HWF energy 
+           ! deband_hwf = - <\psi_n (in)|V_H + V_xc (in) | \psi_n (in) >
+           deband = deband_hwf 
+           !
+           !===============================================================
+
            IF (lrism) THEN
               CALL rism_calc3d(rho%of_g(:, 1), esol, vsol, v%of_r, tr2)
            END IF
