@@ -771,7 +771,7 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
   USE pw_restart_new,ONLY : read_collected_wfc
   USE wavefunctions, ONLY : evc
   !
-  USE projections, ONLY: nlmchi, fill_nlmchi, proj, proj_aux, ovps_aux,&
+  USE projections, ONLY: nlmchi, fill_nlmchi, proj, proj_aux, dproj_aux, ovps_aux,&
                          sym_proj_g, sym_proj_k, sym_proj_nc, sym_proj_so,&
                          compute_zdistmat, compute_ddistmat,&
                          wf_times_overlap, wf_times_roverlap
@@ -781,6 +781,8 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
   USE mp_pools,  ONLY: me_pool, root_pool, intra_pool_comm
   USE uspp_init,            ONLY : init_us_2
   USE buffers,   ONLY : open_buffer, save_buffer, get_buffer, close_buffer
+  USE cell_base,  ONLY : tpiba
+  USE gvect,          ONLY : g
   !
   IMPLICIT NONE
   !
@@ -795,7 +797,7 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
   INTEGER :: npw, npw_, ik, ibnd, i, j, k, na, nb, nt, isym, n,  m, l, nwfc,&
        lmax_wfc, is
   REAL(DP),    ALLOCATABLE :: e (:)
-  COMPLEX(DP), ALLOCATABLE :: wfcatom (:,:), proj0(:,:)
+  COMPLEX(DP), ALLOCATABLE :: wfcatom (:,:), proj0(:,:), dproj0(:,:), dwfc(:,:)
   COMPLEX(DP), ALLOCATABLE :: e_work_d(:,:)
   ! Some workspace for gamma-point calculation ...
   REAL   (DP), ALLOCATABLE :: rproj0(:,:)
@@ -821,6 +823,9 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
   INTEGER, ALLOCATABLE :: ic_notcnv( : )
   LOGICAL :: do_distr_diag_inside_bgrp
   INTEGER :: nproc_ortho
+  INTEGER :: ig, iatwfc
+   REAL :: gvec
+
   ! distinguishes active procs in parallel linear algebra
   !
   IF ( natomwfc <= 0 ) CALL errore &
@@ -1035,10 +1040,30 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
         DEALLOCATE (rproj0)
         !
      ELSE
-        !
-        ALLOCATE( proj0(natomwfc,nbnd) )
-        CALL calbec ( npw_, wfcatom, evc, proj0)
+
+         ! projector
+         ALLOCATE( proj0(natomwfc,nbnd) )
+         CALL calbec ( npw_, wfcatom, evc, proj0)
+
+         ! derivative of projector
+         ALLOCATE( dproj0(natomwfc,nbnd) )
+         ALLOCATE( dwfc(npwx*npol, natomwfc) )
+         DO ig = 1, npw
+            ! gvec = (g(1,igk_k(ig,ik)) + xk(1,ik)) * tpiba
+            gvec = (g(1,igk_k(ig,ik))) * tpiba
+            DO iatwfc = 1, natomwfc
+               dwfc(ig,iatwfc) = (0.d0,-1.d0) * gvec * wfcatom(ig,iatwfc)
+            ENDDO
+         ENDDO
+         CALL calbec ( npw_, dwfc, evc, dproj0)
+         ! CALL ZGEMM('C','N',natomwfc, nbnd, npw_, (1.d0,0.d0), &
+         !                dwfc, npw_, evc, npw_, (0.d0,0.d0), &
+         !                dproj0, natomwfc)
+         ! CALL mp_sum( dproj0, intra_pool_comm)
+
         IF (ionode_pool) WRITE( iunaux ) proj0
+        IF (ionode_pool) WRITE( iunaux ) dproj0
+
         IF (lsym) THEN
            IF ( lspinorb ) THEN 
               CALL sym_proj_so ( domag, proj0, proj(:,:,ik) )
@@ -1051,6 +1076,8 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
            proj(:,:,ik)=abs(proj0(:,:))**2
         END IF
         DEALLOCATE (proj0)
+        DEALLOCATE (dproj0)
+        DEALLOCATE (dwfc)
         !
      ENDIF
      !
@@ -1131,7 +1158,9 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
         ALLOCATE( ovps_aux(1, 1, 1) )
      ENDIF
      ALLOCATE( proj_aux (natomwfc, nbnd, nkstot) )
+     ALLOCATE( dproj_aux (natomwfc, nbnd, nkstot) )
      proj_aux = (0.d0, 0.d0)
+     dproj_aux = (0.d0, 0.d0)
      !
      DO ik = 1, nks
         !
@@ -1143,6 +1172,7 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
            DEALLOCATE ( rproj0 )
         ELSE
            READ( iunaux ) proj_aux(:,:,ik)
+           READ( iunaux ) dproj_aux(:,:,ik)
         ENDIF
         !
      ENDDO
@@ -1151,9 +1181,11 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
      !
   ELSE
      ALLOCATE( proj_aux (1,1,1) )
+     ALLOCATE( dproj_aux (1,1,1) )
   END IF
   !
   CALL poolrecover (proj_aux, 2 * nbnd * natomwfc, nkstot, nks)
+  CALL poolrecover (dproj_aux, 2 * nbnd * natomwfc, nkstot, nks)
   IF ( lwrite_ovp ) &
       CALL poolrecover (ovps_aux, 2 * natomwfc * natomwfc, nkstot, nks)
   !
@@ -1163,10 +1195,12 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
      !
      CALL write_xml_proj( "atomic_proj.xml", proj_aux, lwrite_ovp, &
           ovps_aux )
+     CALL write_xml_proj( "atomic_dproj.xml", dproj_aux, lwrite_ovp, &
+          ovps_aux )
      !
   ENDIF
   !
-  IF ( ionode_pool ) DEALLOCATE( proj_aux, ovps_aux )
+  IF ( ionode_pool ) DEALLOCATE( proj_aux, dproj_aux, ovps_aux )
   CALL laxlib_end()
   !
   RETURN

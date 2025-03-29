@@ -17,6 +17,7 @@ MODULE projections
   
   REAL (DP),    ALLOCATABLE :: proj (:,:,:)
   COMPLEX (DP), ALLOCATABLE :: proj_aux (:,:,:)
+  COMPLEX (DP), ALLOCATABLE :: dproj_aux (:,:,:)
   COMPLEX (DP), ALLOCATABLE :: ovps_aux (:,:,:)
   
   CONTAINS
