@@ -1007,15 +1007,15 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
      !
      ! calculate wfcatom = O^{-1/2} \hat S | phi>
      !
-     IF ( gamma_only ) THEN
-        roverlap_d(:,:)=REAL(overlap_d(:,:),DP)
-        CALL wf_times_roverlap( nx, npw, swfcatom, roverlap_d, wfcatom, &
-                                idesc, rank_ip, idesc_ip, la_proc )
-        DEALLOCATE( roverlap_d )
-     ELSE
-        CALL wf_times_overlap( nx, npw_, swfcatom, overlap_d, wfcatom, &
-                               idesc, rank_ip, idesc_ip, la_proc )
-     ENDIF
+     ! IF ( gamma_only ) THEN
+     !    roverlap_d(:,:)=REAL(overlap_d(:,:),DP)
+     !    CALL wf_times_roverlap( nx, npw, swfcatom, roverlap_d, wfcatom, &
+     !                            idesc, rank_ip, idesc_ip, la_proc )
+        ! DEALLOCATE( roverlap_d )
+     ! ELSE
+     !    CALL wf_times_overlap( nx, npw_, swfcatom, overlap_d, wfcatom, &
+     !                           idesc, rank_ip, idesc_ip, la_proc )
+     ! ENDIF
      DEALLOCATE( overlap_d )
      !
      ! Save O^{-1/2} \hat S | phi_j> for a given k
