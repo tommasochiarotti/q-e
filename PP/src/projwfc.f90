@@ -797,7 +797,7 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
   INTEGER :: npw, npw_, ik, ibnd, i, j, k, na, nb, nt, isym, n,  m, l, nwfc,&
        lmax_wfc, is
   REAL(DP),    ALLOCATABLE :: e (:)
-  COMPLEX(DP), ALLOCATABLE :: wfcatom (:,:), proj0(:,:), dproj0(:,:), dwfc(:,:)
+  COMPLEX(DP), ALLOCATABLE :: wfcatom (:,:), proj0(:,:), dproj0(:,:,:), dwfc(:,:,:)
   COMPLEX(DP), ALLOCATABLE :: e_work_d(:,:)
   ! Some workspace for gamma-point calculation ...
   REAL   (DP), ALLOCATABLE :: rproj0(:,:)
@@ -824,7 +824,7 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
   LOGICAL :: do_distr_diag_inside_bgrp
   INTEGER :: nproc_ortho
   INTEGER :: ig, iatwfc
-   REAL :: gvec
+   REAL :: gvec(3)
 
   ! distinguishes active procs in parallel linear algebra
   !
@@ -1046,23 +1046,27 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
          CALL calbec ( npw_, wfcatom, evc, proj0)
 
          ! derivative of projector
-         ALLOCATE( dproj0(natomwfc,nbnd) )
-         ALLOCATE( dwfc(npwx*npol, natomwfc) )
+         ALLOCATE( dproj0(3, natomwfc,nbnd) )
+         ALLOCATE( dwfc(3, npwx*npol, natomwfc) )
          DO ig = 1, npw
-            ! gvec = (g(1,igk_k(ig,ik)) + xk(1,ik)) * tpiba
-            gvec = (g(1,igk_k(ig,ik))) * tpiba
+            gvec = (g(:,igk_k(ig,ik)) + xk(1,ik)) * tpiba
+            ! gvec = (g(1,igk_k(ig,ik))) * tpiba
             DO iatwfc = 1, natomwfc
-               dwfc(ig,iatwfc) = (0.d0,-1.d0) * gvec * wfcatom(ig,iatwfc)
+               dwfc(:,ig,iatwfc) = (0.d0,-1.d0) * gvec * wfcatom(ig,iatwfc)
             ENDDO
          ENDDO
-         CALL calbec ( npw_, dwfc, evc, dproj0)
+         CALL calbec ( npw_, dwfc(1,:,:), evc, dproj0(1,:,:))
+         CALL calbec ( npw_, dwfc(2,:,:), evc, dproj0(2,:,:))
+         CALL calbec ( npw_, dwfc(3,:,:), evc, dproj0(3,:,:))
          ! CALL ZGEMM('C','N',natomwfc, nbnd, npw_, (1.d0,0.d0), &
          !                dwfc, npw_, evc, npw_, (0.d0,0.d0), &
          !                dproj0, natomwfc)
          ! CALL mp_sum( dproj0, intra_pool_comm)
 
         IF (ionode_pool) WRITE( iunaux ) proj0
-        IF (ionode_pool) WRITE( iunaux ) dproj0
+        IF (ionode_pool) WRITE( iunaux ) dproj0(1,:,:)
+        IF (ionode_pool) WRITE( iunaux ) dproj0(2,:,:)
+        IF (ionode_pool) WRITE( iunaux ) dproj0(3,:,:)
 
         IF (lsym) THEN
            IF ( lspinorb ) THEN 
@@ -1158,7 +1162,7 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
         ALLOCATE( ovps_aux(1, 1, 1) )
      ENDIF
      ALLOCATE( proj_aux (natomwfc, nbnd, nkstot) )
-     ALLOCATE( dproj_aux (natomwfc, nbnd, nkstot) )
+     ALLOCATE( dproj_aux (3,natomwfc, nbnd, nkstot) )
      proj_aux = (0.d0, 0.d0)
      dproj_aux = (0.d0, 0.d0)
      !
@@ -1172,7 +1176,9 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
            DEALLOCATE ( rproj0 )
         ELSE
            READ( iunaux ) proj_aux(:,:,ik)
-           READ( iunaux ) dproj_aux(:,:,ik)
+           READ( iunaux ) dproj_aux(1,:,:,ik)
+           READ( iunaux ) dproj_aux(2,:,:,ik)
+           READ( iunaux ) dproj_aux(3,:,:,ik)
         ENDIF
         !
      ENDDO
@@ -1181,7 +1187,7 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
      !
   ELSE
      ALLOCATE( proj_aux (1,1,1) )
-     ALLOCATE( dproj_aux (1,1,1) )
+     ALLOCATE( dproj_aux (3,1,1,1) )
   END IF
   !
   CALL poolrecover (proj_aux, 2 * nbnd * natomwfc, nkstot, nks)
@@ -1195,7 +1201,11 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
      !
      CALL write_xml_proj( "atomic_proj.xml", proj_aux, lwrite_ovp, &
           ovps_aux )
-     CALL write_xml_proj( "atomic_dproj.xml", dproj_aux, lwrite_ovp, &
+     CALL write_xml_proj( "atomic_dprojx.xml", dproj_aux(1,:,:,:), lwrite_ovp, &
+          ovps_aux )
+     CALL write_xml_proj( "atomic_dprojy.xml", dproj_aux(2,:,:,:), lwrite_ovp, &
+          ovps_aux )
+     CALL write_xml_proj( "atomic_dprojz.xml", dproj_aux(3,:,:,:), lwrite_ovp, &
           ovps_aux )
      !
   ENDIF
