@@ -1049,8 +1049,8 @@ SUBROUTINE projwave( filproj, filowdin, lsym, diag_basis, lwrite_ovp )
          ALLOCATE( dproj0(3, natomwfc,nbnd) )
          ALLOCATE( dwfc(3, npwx*npol, natomwfc) )
          DO ig = 1, npw
-            gvec = (g(:,igk_k(ig,ik)) + xk(1,ik)) * tpiba
-            ! gvec = (g(1,igk_k(ig,ik))) * tpiba
+            gvec = (g(:,igk_k(ig,ik)) + xk(:,ik)) * tpiba
+            ! gvec = (g(:,igk_k(ig,ik))) * tpiba
             DO iatwfc = 1, natomwfc
                dwfc(:,ig,iatwfc) = (0.d0,-1.d0) * gvec * wfcatom(ig,iatwfc)
             ENDDO
