@@ -934,8 +934,6 @@ SUBROUTINE electrons_scf ( printout, exxen )
            !
            IF (lda_plus_u .AND. lda_plus_u_kind.EQ.2) nsg = nsgnew
            !
-           CALL v_of_rho( rho,rho_core,rhog_core, &
-                          ehart, etxc, vtxc, eth, etotefield, charge, v )
            !
            !====== HACK HERE =============================================
            ! I need Hartree and Exchange-correlation contributions to be
