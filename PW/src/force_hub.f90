@@ -441,6 +441,9 @@ SUBROUTINE dndtau_k( ldim, proj, spsi, alpha, jkb0, ipol, ik, nb_s, &
    !
    INTEGER :: ibnd, is, na, nt, m1, m2, off1, off2, m11, m22, ldim1
    COMPLEX(DP), ALLOCATABLE :: dproj(:,:), dproj_us(:,:)
+   
+   INTEGER :: i, j
+   CHARACTER(len=30) :: filename
    !
    CALL start_clock( 'dndtau' )
    !
@@ -486,6 +489,15 @@ SUBROUTINE dndtau_k( ldim, proj, spsi, alpha, jkb0, ipol, ik, nb_s, &
            dproj = dproj + dproj_us
            !$acc end kernels
          ENDIF
+         WRITE(filename, '(a, i0, a, i0, a, i0, a, i0, a, i0, a, i0, a)') 'dproj', ipol, '_', alpha,  '_', ik, '_', na, '_', nb_s, '_', nb_e, '.dat'
+         OPEN(unit=12, file=trim(filename), status='replace')
+         WRITE(12, *) SIZE(dproj, 1), SIZE(dproj, 2)
+         DO i = 1, SIZE(dproj, 1)
+                DO j = 1, SIZE(dproj, 2)
+                   WRITE(12, *) dproj(i, j)
+                END DO
+         END DO
+         CLOSE(12)
          !
          !$acc update self(dproj(:,nb_s:nb_e))
          IF (mykey==0) THEN
@@ -1663,6 +1675,7 @@ SUBROUTINE dprojdtau_k( spsi, alpha, na, ijkb0, ipol, ik, nb_s, nb_e, mykey, dpr
          !$acc parallel loop
          DO ibnd = nb_s, nb_e
             dproj(offpm,ibnd) = dproj0(m1,ibnd)
+            ! print*, 'dproj', offpm, ibnd, dproj(offpm,ibnd)
             IF (noncolin) dproj(offpm+ldim,ibnd) = dproj0(m1+ldim,ibnd)
          ENDDO
       ENDDO
