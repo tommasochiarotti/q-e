@@ -4,9 +4,39 @@ MODULE module_chargedens_fromfile
   !
   ! Subroutines
   !
-  PUBLIC :: print_symmetries,symmetrize_rhor
+  PUBLIC :: print_symmetries,symmetrize_rhor, print_psic
   !
 CONTAINS
+  !--------------------------------------------------------------------
+  SUBROUTINE print_psic(iun,ik,nbnd,nnr,nr1x,nr2x,nr3x,psic)
+    !--------------------------------------------------------------------
+    USE kinds,                ONLY : DP
+    !
+    IMPLICIT NONE
+    INTEGER, intent(in)          :: iun, nbnd, ik,nnr, nr1x,nr2x,nr3x 
+    COMPLEX(DP), intent(in)      :: psic(:,:)
+    INTEGER                      :: ibnd,nr,ir
+    CHARACTER(LEN=6), EXTERNAL   :: int_to_char
+    CHARACTER(10)                :: subname="print_psic"
+    !
+    open(unit=iun,file="wfcr"//trim(int_to_char(ik)//".dat"),action='write',status='replace')
+    nr = nr1x * nr2x * nr3x
+    if (nr/=nnr) call errore(subname,"fatal nr ! nnr:",1)
+    write(iun,"('#  ik ', i5)") ik
+    write(iun,"('#  nbnd ', i3)") nbnd
+    write(iun,"('#  nr ', i5)") nr 
+    write(iun,"('#  nrx nry nrz ', 3i5)") nr1x, nr2x, nr3x
+    do ibnd = 1,nbnd
+      write(iun,"('#  ibnd ',i3)") ibnd
+      do ir = 1,nr
+        write(iun,"(E23.16,x,E23.16)") real(psic(ir,ibnd),DP), aimag(psic(ir,ibnd)) 
+      enddo
+    enddo
+    write(iun,"('#  END')") 
+    close(iun)
+    !
+  END SUBROUTINE print_psic 
+  !
   !--------------------------------------------------------------------
   SUBROUTINE print_dmat(iun,fileout,dmat,nsym,l)
     !--------------------------------------------------------------------
@@ -181,7 +211,8 @@ PROGRAM do_chargedens_fromfile
   USE io_rho_xml,           ONLY : write_scf,read_scf
   USE matrix_inversion
   USE symm_base,  ONLY : nsym, irt, t_rev, d1, d2, d3
-  USE module_chargedens_fromfile, ONLY : print_symmetries,symmetrize_rhor 
+  USE module_chargedens_fromfile, ONLY : print_symmetries,symmetrize_rhor, &
+                                         print_psic
   !
   IMPLICIT NONE
   !
@@ -190,7 +221,7 @@ PROGRAM do_chargedens_fromfile
   CHARACTER (len=256) :: filename_rho,outdir,outdir_old,outdir_svd,filename_dmat
   INTEGER :: ios,ik,ig,npw,ibnd,ibnd_prime,ipol,is,iun
   LOGICAL :: needwf = .TRUE.
-  LOGICAL :: mix_rho,change_rho 
+  LOGICAL :: mix_rho,change_rho, output_psink 
   REAL(DP):: mixing_beta_chgdens,dens_real, dens_im
   REAL(DP), ALLOCATABLE :: rbecp(:,:), rhor_aux(:,:),lambda(:)
   COMPLEX(DP), ALLOCATABLE :: becp(:,:), becp_nc(:,:,:), be1(:,:), be2(:,:)
@@ -201,7 +232,7 @@ PROGRAM do_chargedens_fromfile
   INTEGER, EXTERNAL :: find_free_unit
   !
   NAMELIST / chargedens_fromfile / outdir, prefix, change_rho, filename_rho, mixing_beta_chgdens, outdir_old, &
-                                   mix_rho, filename_dmat
+                                   mix_rho, filename_dmat, output_psink
   !
   ! initialise environment
   !
@@ -220,6 +251,7 @@ PROGRAM do_chargedens_fromfile
   outdir_old = ''
   change_rho = .false.
   filename_dmat = ''
+  output_psink = .false.
   !
   ios = 0
   !
@@ -363,6 +395,7 @@ PROGRAM do_chargedens_fromfile
                                                     * conjg(psic_nc_nbnd(:,1,ibnd_prime))) / omega 
         ENDDO
       ENDDO
+      if (output_psink) call print_psic(iun,ik,nbnd,dffts%nnr,dffts%nr1x,dffts%nr2x,dffts%nr3x,psic_nc_nbnd(:,1,:))
     ENDDO
     IF (gamma_only) THEN
        DEALLOCATE(rbecp)
