@@ -298,10 +298,10 @@ PROGRAM do_chargedens_fromfile
       IF (isk (ik+nks/2) /= 2) CALL errore ('do_chargedens_fromfile', 'isk /= 2 for second half points', abs (isk (ik)) ) 
     enddo
   ENDIF
+  ALLOCATE(density_mat(nbnd,nbnd,nks))
+  ALLOCATE (psic_nc_nbnd(dfftp%nnr,nspin,nbnd))
+  becsum(:,:,:) = 0.d0
   if (change_rho) then
-    ALLOCATE(density_mat(nbnd,nbnd,nks))
-    ALLOCATE (psic_nc_nbnd(dfftp%nnr,nspin,nbnd))
-    becsum(:,:,:) = 0.d0
     if (ionode) then
       open(unit=iun,file=trim(filename_rho),action="read",status="old",iostat = ios)
       do ik = 1,nks
@@ -317,77 +317,79 @@ PROGRAM do_chargedens_fromfile
       close(iun)
     endif
     CALL mp_bcast( density_mat,              ionode_id, intra_image_comm )
-    !
-    ! here an up down reading is necessary if non collinear
-    !
-    ! if (nspin /= 1) CALL errore ('do_chargedens_fromfile', 'not implemented for 2 spins', abs (nspin) ) 
-    IF (gamma_only) THEN
-       ALLOCATE (rbecp(nkb,nbnd))
+  endif
+  !
+  ! here an up down reading is necessary if non collinear
+  !
+  ! if (nspin /= 1) CALL errore ('do_chargedens_fromfile', 'not implemented for 2 spins', abs (nspin) ) 
+  IF (gamma_only) THEN
+     ALLOCATE (rbecp(nkb,nbnd))
+  ELSE
+    IF (noncolin) THEN
+       ALLOCATE (becp_nc(nkb,npol,nbnd))
+       IF ( ANY(upf(1:ntyp)%has_so) ) THEN
+         ALLOCATE(be1(nhm,2))
+         ALLOCATE(be2(nhm,2))
+       ENDIF
     ELSE
-      IF (noncolin) THEN
-         ALLOCATE (becp_nc(nkb,npol,nbnd))
-         IF ( ANY(upf(1:ntyp)%has_so) ) THEN
-           ALLOCATE(be1(nhm,2))
-           ALLOCATE(be2(nhm,2))
-         ENDIF
-      ELSE
-         ALLOCATE (becp(nkb,nbnd))
-      ENDIF
+       ALLOCATE (becp(nkb,nbnd))
     ENDIF
-    current_spin = 1
-    DO ik = 1, nks
-      IF (lsda) current_spin = isk (ik)
-      CALL read_collected_wfc ( restart_dir(), ik, evc )
-      npw = ngk(ik)
-      CALL init_us_2 (npw, igk_k(1,ik), xk (1, ik), vkb)
-      IF (gamma_only) THEN
-         CALL calbec ( npw, vkb, evc, rbecp )
-      ELSEIF (noncolin) THEN
-         CALL calbec ( npw, vkb, evc, becp_nc )
+  ENDIF
+  current_spin = 1
+  DO ik = 1, nks
+    IF (lsda) current_spin = isk (ik)
+    CALL read_collected_wfc ( restart_dir(), ik, evc )
+    npw = ngk(ik)
+    CALL init_us_2 (npw, igk_k(1,ik), xk (1, ik), vkb)
+    IF (gamma_only) THEN
+       CALL calbec ( npw, vkb, evc, rbecp )
+    ELSEIF (noncolin) THEN
+       CALL calbec ( npw, vkb, evc, becp_nc )
+    ELSE
+       CALL calbec ( npw, vkb, evc, becp )
+    ENDIF
+    !
+    DO ibnd = 1, nbnd
+      IF (noncolin) THEN
+        psic_nc = (0.d0,0.d0)
+        DO ig = 1, npw
+           psic_nc(dffts%nl(igk_k(ig,ik)),1)=evc(ig     ,ibnd)
+           psic_nc(dffts%nl(igk_k(ig,ik)),2)=evc(ig+npwx,ibnd)
+        ENDDO
+        DO ipol=1,npol
+           CALL invfft ('Wave', psic_nc(:,ipol), dffts)
+           psic_nc_nbnd(:,ipol,ibnd) = psic_nc(:,ipol)
+        ENDDO
       ELSE
-         CALL calbec ( npw, vkb, evc, becp )
+        psic(1:dffts%nnr) = (0.d0,0.d0)
+        DO ig = 1, npw
+           psic (dffts%nl (igk_k(ig,ik) ) ) = evc (ig, ibnd)
+        ENDDO
+        IF (gamma_only) THEN
+           DO ig = 1, npw
+              psic (dffts%nlm(igk_k (ig,ik) ) ) = conjg(evc (ig, ibnd))
+           ENDDO
+        ENDIF
+        CALL invfft ('Wave', psic, dffts)
+        psic_nc_nbnd(:,1,ibnd) = psic
       ENDIF
       !
-      DO ibnd = 1, nbnd
+      ! case of density_mat = identity
+      !
+      IF (.not.change_rho) THEN
         IF (noncolin) THEN
-          psic_nc = (0.d0,0.d0)
-          DO ig = 1, npw
-             psic_nc(dffts%nl(igk_k(ig,ik)),1)=evc(ig     ,ibnd)
-             psic_nc(dffts%nl(igk_k(ig,ik)),2)=evc(ig+npwx,ibnd)
-          ENDDO
           DO ipol=1,npol
-             CALL invfft ('Wave', psic_nc(:,ipol), dffts)
-             psic_nc_nbnd(:,ipol,ibnd) = psic_nc(:,ipol)
+            rhor_aux(:,current_spin) = rhor_aux(:,current_spin) + & 
+                                        dble(psic_nc(:,ipol) * wg (ibnd, ik) * conjg(psic_nc(:,ipol))) / omega
           ENDDO
         ELSE
-          psic(1:dffts%nnr) = (0.d0,0.d0)
-          DO ig = 1, npw
-             psic (dffts%nl (igk_k(ig,ik) ) ) = evc (ig, ibnd)
-          ENDDO
-          IF (gamma_only) THEN
-             DO ig = 1, npw
-                psic (dffts%nlm(igk_k (ig,ik) ) ) = conjg(evc (ig, ibnd))
-             ENDDO
-          ENDIF
-          CALL invfft ('Wave', psic, dffts)
-          psic_nc_nbnd(:,1,ibnd) = psic
+          rhor_aux(:,current_spin) = rhor_aux(:,current_spin) + & 
+                                        dble(psic * wg (ibnd, ik) * conjg(psic)) / omega 
         ENDIF
-        !
-        ! case of density_mat = identity
-        !
-        IF (.not.change_rho) THEN
-          IF (noncolin) THEN
-            DO ipol=1,npol
-              rhor_aux(:,current_spin) = rhor_aux(:,current_spin) + & 
-                                          dble(psic_nc(:,ipol) * wg (ibnd, ik) * conjg(psic_nc(:,ipol))) / omega
-            ENDDO
-          ELSE
-            rhor_aux(:,current_spin) = rhor_aux(:,current_spin) + & 
-                                          dble(psic * wg (ibnd, ik) * conjg(psic)) / omega 
-          ENDIF
-        ENDIF
-      ENDDO
-      ! change rho
+      ENDIF
+    ENDDO
+    ! change rho
+    IF (change_rho) THEN
       DO ibnd_prime = 1, nbnd
         DO ibnd = 1, nbnd
             rhor_aux(:,current_spin) = rhor_aux(:,current_spin) + & 
@@ -395,33 +397,33 @@ PROGRAM do_chargedens_fromfile
                                                     * conjg(psic_nc_nbnd(:,1,ibnd_prime))) / omega 
         ENDDO
       ENDDO
-      if (output_psink) call print_psic(iun,ik,nbnd,dffts%nnr,dffts%nr1x,dffts%nr2x,dffts%nr3x,psic_nc_nbnd(:,1,:))
-    ENDDO
-    IF (gamma_only) THEN
-       DEALLOCATE(rbecp)
-    ELSE
-       IF (noncolin) THEN
-          IF ( ANY(upf(1:ntyp)%has_so) ) THEN
-             DEALLOCATE(be1)
-             DEALLOCATE(be2)
-          ENDIF
-          DEALLOCATE(becp_nc)
-       ELSE
-          DEALLOCATE(becp)
-       ENDIF
     ENDIF
-    !
-    deallocate(density_mat)
-    !
-    ! symmetrize rho
-    !
-    call symmetrize_rhor(rhor_aux)
-    !
-    rho%of_r(:,:) = rhor_aux(:,:)
-    IF ( nspin == 2 ) CALL rhoz_or_updw( rho, 'r', '->rhoz' )
-    rhor_aux(:,:) = rho%of_r(:,:)
-    !
-  endif
+    if (output_psink) call print_psic(iun,ik,nbnd,dffts%nnr,dffts%nr1x,dffts%nr2x,dffts%nr3x,psic_nc_nbnd(:,1,:))
+  ENDDO
+  IF (gamma_only) THEN
+     DEALLOCATE(rbecp)
+  ELSE
+     IF (noncolin) THEN
+        IF ( ANY(upf(1:ntyp)%has_so) ) THEN
+           DEALLOCATE(be1)
+           DEALLOCATE(be2)
+        ENDIF
+        DEALLOCATE(becp_nc)
+     ELSE
+        DEALLOCATE(becp)
+     ENDIF
+  ENDIF
+  !
+  deallocate(density_mat)
+  !
+  ! symmetrize rho
+  !
+  call symmetrize_rhor(rhor_aux)
+  !
+  rho%of_r(:,:) = rhor_aux(:,:)
+  IF ( nspin == 2 ) CALL rhoz_or_updw( rho, 'r', '->rhoz' )
+  rhor_aux(:,:) = rho%of_r(:,:)
+  !
   ! mix if needed
   if (mix_rho) then
     if (.not. change_rho) CALL rho_g2r (dfftp, rho%of_g, rhor_aux)
