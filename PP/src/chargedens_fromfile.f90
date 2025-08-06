@@ -19,7 +19,7 @@ CONTAINS
     CHARACTER(LEN=6), EXTERNAL   :: int_to_char
     CHARACTER(10)                :: subname="print_psic"
     !
-    open(unit=iun,file="wfcr"//trim(int_to_char(ik)//".dat"),action='write',status='replace')
+    open(unit=iun,file="wfcr"//trim(int_to_char(ik))//".dat",action='write',status='replace')
     nr = nr1x * nr2x * nr3x
     if (nr/=nnr) call errore(subname,"fatal nr ! nnr:",1)
     write(iun,"('#  ik ', i5)") ik
