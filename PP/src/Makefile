@@ -64,7 +64,8 @@ all : tldeps open_grid.x average.x bands.x dos.x epsilon.x initial_state.x fs.x 
       plan_avg.x plotband.x plotproj.x plotrho.x pmw.x pp.x projwfc.x \
       pawplot.x sumpdos.x pw2wannier90.x pw2critic.x pw2gw.x pw2gt.x \
       wannier_ham.x wannier_plot.x molecularpdos.x \
-      pw2bgw.x wfck2r.x fermi_velocity.x fermi_proj.x ppacf.x chargedens_fromfile.x
+      pw2bgw.x wfck2r.x fermi_velocity.x fermi_proj.x ppacf.x chargedens_fromfile.x \
+      print_deltaV.x
 
 
 libpp.a : $(PPOBJS) 
@@ -139,6 +140,11 @@ projwfc.x : projwfc.o libpp.a $(MODULES)
 chargedens_fromfile.x : chargedens_fromfile.o libpp.a $(MODULES) 
 	$(LD) $(LDFLAGS) -o $@ \
 		chargedens_fromfile.o libpp.a $(MODULES) $(QELIBS)
+	- ( cd ../../bin ; ln -fs ../PP/src/$@ . )
+
+print_deltaV.x : print_deltaV.o libpp.a $(MODULES) 
+	$(LD) $(LDFLAGS) -o $@ \
+		print_deltaV.o libpp.a $(MODULES) $(QELIBS)
 	- ( cd ../../bin ; ln -fs ../PP/src/$@ . )
 
 pw2wannier90.x : pw2wannier90.o libpp.a $(MODULES) 
