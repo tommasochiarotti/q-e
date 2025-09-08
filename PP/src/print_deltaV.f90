@@ -29,6 +29,8 @@ PROGRAM print_deltaV
   USE buffers,          ONLY : get_buffer, open_buffer
   USE control_flags,    ONLY : io_level
   USE cell_base,        ONLY : at
+  USE mp_bands,         ONLY : intra_bgrp_comm
+  USE mp,               ONLY : mp_sum
   !
   IMPLICIT NONE
   !
@@ -45,9 +47,9 @@ PROGRAM print_deltaV
   ! \Delta^q V(k)_ij = <psi_k+q,i|e^iqr|psi_k,j> 
   COMPLEX(DP) , ALLOCATABLE ::  aux (:)
   ! work space
-  COMPLEX(DP), ALLOCATABLE :: evk (:,:)
+  COMPLEX(DP), ALLOCATABLE, TARGET :: evk (:,:)
   ! wfc at k 
-  COMPLEX(DP), ALLOCATABLE :: evq (:,:)
+  COMPLEX(DP), POINTER :: evq (:,:)
   ! wfc at k+q
   !
   INTEGER :: ik, npw, npwq, ikk, ikq
@@ -57,7 +59,7 @@ PROGRAM print_deltaV
   !
   REAL(DP) :: xq(3), xk_(3)
   !
-  LOGICAL :: exst, exst_mem
+  LOGICAL :: exst, exst_mem, lgamma
   CHARACTER (len=10):: file_ik
   CHARACTER (len=50):: file_q1
   CHARACTER (len=50):: file_q2
@@ -109,7 +111,6 @@ PROGRAM print_deltaV
   ALLOCATE (dvpsi ( npwx*npol , nbnd))
   ALLOCATE (deltaV (nbnd, nbnd))
   ALLOCATE( evk(npwx*npol,nbnd) )
-  ALLOCATE( evq(npwx*npol,nbnd) )
   !
   xq(:)=xk(:,2)-xk(:,1)
   call cryst_to_cart (1, xq, at, - 1)
@@ -119,6 +120,18 @@ PROGRAM print_deltaV
   WRITE (file_q2, '(3F8.4)') xq(2)
   WRITE (file_q3, '(3F8.4)') xq(3)
   !
+  lgamma = .FALSE.
+  IF ( ALL( ABS(xq(:)) < 1.d-5 ) ) lgamma = .TRUE.
+  !
+  IF (lgamma) then
+     WRITE(stdout,'(/,5X, "INFO evq is a pointer to evk"  )') 
+     !  q=0  : evq is a pointer to evk
+     evq  => evk
+  ELSE
+     !  q!=0 : evq is allocated and calculated at point k+q
+     ALLOCATE (evq ( npwx*npol , nbnd))
+  endif
+  !
   DO ik = 1, nks, 2
     ! effective k point index not counting the k+q points
     eff_ik = ik/2+1
@@ -126,7 +139,7 @@ PROGRAM print_deltaV
     DeltaV = CMPLX(0,0,kind=DP)
     !
     WRITE(stdout,'(/, 5X, "INFO ik  =", I5)') ik
-    WRITE(stdout,'(/, 5X, "INFO ikq =", I5)') ik+1
+    WRITE(stdout,'(   5X, "INFO ikq =", I5)') ik+1
     !
     ALLOCATE (aux(dffts%nnr))
     !
@@ -178,6 +191,8 @@ PROGRAM print_deltaV
     !
     CALL ZGEMM( 'C', 'N', nbnd, nbnd, npwx*npol, (1.d0,0.d0), &
                       evq, npwx*npol, dvpsi, npwx*npol, (0.d0,0.d0), deltaV, nbnd )
+    !          
+    CALL mp_sum( deltaV, intra_bgrp_comm )
     !
     !WRITE(*,*) evk(1:3,1)
     !WRITE(*,*) evq(1:3,1)
@@ -215,7 +230,11 @@ PROGRAM print_deltaV
   DEALLOCATE (dvpsi )
   DEALLOCATE (deltaV)
   DEALLOCATE (evk)
-  DEALLOCATE (evq)
+  IF (lgamma) THEN
+     IF(associated(evq)) NULLIFY(evq)
+  ELSE
+     IF(associated(evq)) DEALLOCATE(evq)
+  ENDIF
   !
   CALL environment_end ( 'PRINT_DV' )
   !
