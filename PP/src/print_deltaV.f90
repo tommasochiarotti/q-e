@@ -112,13 +112,26 @@ PROGRAM print_deltaV
   ALLOCATE (deltaV (nbnd, nbnd))
   ALLOCATE( evk(npwx*npol,nbnd) )
   !
+  ! Check on the format of the preceeding bands calculation.
+  ! It has to be in the form 
+  ! xk   (1:3,1)
+  ! xk+q (1:3,1)
+  ! xk   (1:3,2)
+  ! xk+q (1:3,2)
+  ! ...
   xq(:)=xk(:,2)-xk(:,1)
+  !
+  DO ik = 1, nks, 2
+   ! use xk_ as a workspace
+   xk_(:)=xk(:,ik+1)-xk(:,ik)
+   IF (.NOT. ALL( ABS(xk_(:)-xq(:)) < 1.d-5 ) ) CALL errore( 'print_deltaV', 'Wrong list of k+q', ik )
+  ENDDO 
+  !
   call cryst_to_cart (1, xq, at, - 1)
-  WRITE(stdout,'(/,5X, "INFO xq    =", 3F8.4, " [Cart]"  )') xk(:,2)-xk(:,1)
-  WRITE(stdout,'(  5X, "INFO xq    =", 3F8.4, " [Crys]",/)') xq(:)
-  WRITE (file_q1, '(3F8.4)') xq(1)
-  WRITE (file_q2, '(3F8.4)') xq(2)
-  WRITE (file_q3, '(3F8.4)') xq(3)
+  WRITE(stdout,'(/,5X, "INFO Found xq    =", 3F8.4, " [Cart]" )') xk(:,2)-xk(:,1)
+  WRITE(stdout,'(  5X, "                 =", 3F8.4, " [Crys]" )') xq(:)
+  !
+  WRITE (file_q1, '(3F8.4)') xq(1);  WRITE (file_q2, '(3F8.4)') xq(2);  WRITE (file_q3, '(3F8.4)') xq(3)
   !
   lgamma = .FALSE.
   IF ( ALL( ABS(xq(:)) < 1.d-5 ) ) lgamma = .TRUE.
@@ -156,8 +169,8 @@ PROGRAM print_deltaV
     npw = ngk(ikk)
     npwq= ngk(ikq)
     !
-    WRITE(stdout,'(5X, "INFO xk    =", 3F8.4)') xk(:,ik)
-    WRITE(stdout,'(5X, "INFO xkq   =", 3F8.4)') xk(:,ikq)
+    WRITE(stdout,'(5X, "INFO xk    =", 3F8.4, " [Cart]")') xk(:,ik)
+    WRITE(stdout,'(5X, "INFO xkq   =", 3F8.4, " [Cart]")') xk(:,ikq)
     !
     WRITE(stdout, '(5X, "INFO npw  =", I5)') npw
     WRITE(stdout, '(5X, "INFO npwq =", I5)') npwq
@@ -194,12 +207,6 @@ PROGRAM print_deltaV
     !          
     CALL mp_sum( deltaV, intra_bgrp_comm )
     !
-    !WRITE(*,*) evk(1:3,1)
-    !WRITE(*,*) evq(1:3,1)
-    !WRITE(*,*) evq(1:3,1)/evk(1:3,1)
-    !WRITE(*,*) SUM( CONJG(evq(:,1))*evk(:,1))
-    !WRITE(*,*) ABS(SUM( CONJG(evq(:,1))*evk(:,1)))
-    !
     ! Writing on file
     WRITE (file_ik,'(i0)') eff_ik
     file_name = 'DeltaV_q' // trim(adjustl(file_q1)) // '_'   &  
@@ -207,9 +214,9 @@ PROGRAM print_deltaV
                            // trim(adjustl(file_q3)) // '_ik' & 
                            // trim(adjustl(file_ik)) // '.dat'
     OPEN (file=trim(file_name), unit=101)
-    write(*,*) file_name
+    write(stdout,'(5X, "INFO Writing data on file = ", A64)') file_name
     WRITE(101, '("# Wave vector of the perturbation xq = ", 3F12.8, " [Cart]")') xk(:,2)-xk(:,1)
-    WRITE(101, '("# Wave vector of the perturbation xq = ", 3F12.8, " [Crys]")') xq
+    WRITE(101, '("#                                      ", 3F12.8, " [Crys]")') xq
     WRITE(101, '("# ik     = ", I5)') eff_ik
     xk_(:) = xk(:,ik)
     call cryst_to_cart (1, xk_, at, - 1)
