@@ -122,7 +122,7 @@ PROGRAM print_deltaV
   xq(:)=xk(:,2)-xk(:,1)
   !
   DO ik = 1, nks, 2
-   ! use xk_ as a workspace
+   ! use xk_ as a workspace. Maybe better to define an other variable
    xk_(:)=xk(:,ik+1)-xk(:,ik)
    IF (.NOT. ALL( ABS(xk_(:)-xq(:)) < 1.d-5 ) ) CALL errore( 'print_deltaV', 'Wrong list of k+q', ik )
   ENDDO 
