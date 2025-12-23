@@ -11,11 +11,12 @@ SUBROUTINE force_us( forcenl )
   !----------------------------------------------------------------------------
   !! The nonlocal potential contribution to forces.
   !
+  USE io_global,            ONLY : ionode, ionode_id
   USE kinds,                ONLY : DP
   USE control_flags,        ONLY : gamma_only, offload_type
   USE cell_base,            ONLY : tpiba
   USE ions_base,            ONLY : nat, ntyp => nsp, ityp
-  USE klist,                ONLY : nks, xk, ngk, igk_k
+  USE klist,                ONLY : nks, xk, ngk, igk_k, wk
   USE gvect,                ONLY : g
   USE uspp,                 ONLY : nkb, vkb, qq_at, deeq, qq_so, deeq_nc, ofsbeta
   USE uspp_param,           ONLY : upf, nh, nhm
@@ -31,8 +32,10 @@ SUBROUTINE force_us( forcenl )
                                    allocate_bec_type_acc, deallocate_bec_type_acc
   USE mp_pools,             ONLY : inter_pool_comm
   USE mp_bands,             ONLY : intra_bgrp_comm, me_bgrp, nproc_bgrp
-  USE mp,                   ONLY : mp_sum
+  USE mp_world,         ONLY : world_comm
+  USE mp,                   ONLY : mp_sum, mp_bcast, mp_barrier
   USE uspp_init,            ONLY : init_us_2
+  USE pw_restart_new,       ONLY : read_collected_wfc
   !
   IMPLICIT NONE
   !
@@ -46,146 +49,115 @@ SUBROUTINE force_us( forcenl )
   COMPLEX(DP) :: deff_nc
   REAL(DP) :: deff, fnl
   INTEGER :: npw, ik, ipol, ig, na, na_s, na_e, mykey
-  INTEGER :: nt, ibnd, nhnt, ih, jh, ijkb0, ikb, jkb, is, js, ijs
+  INTEGER :: nt, ibnd, ibnd1, ibnd2, ibnd3, nhnt, ih, jh, ijkb0, ikb, jkb, is, js, ijs
+  INTEGER :: ios, iun
+  COMPLEX(DP), ALLOCATABLE :: density_mat(:,:,:)
+  REAL(DP) :: dens_real, dens_im
+  INTEGER, EXTERNAL :: find_free_unit
+  COMPLEX(DP), ALLOCATABLE :: evc_old(:,:), overlap(:,:)
+
+
   !
   forcenl(:,:) = 0.D0
+
+  ! READ OCCMAT
+  ALLOCATE(density_mat(nbnd,nbnd,nks))
+  density_mat = (0.0_dp, 0.0_dp)
+  iun = find_free_unit()
+  !if (ionode) then
+  open(unit=iun,file=trim("densityMat.dat"),action="read",status="old",iostat = ios)
+  do ik = 1,nks
+    if (ios == 0) then
+      read(iun,*)
+      do ibnd = 1, nbnd
+        read(iun,*)
+        do ibnd1 = 1,nbnd
+          read(iun,"(E23.16,x,E23.16)") dens_real, dens_im
+          density_mat(ibnd,ibnd1,ik) = cmplx(dens_real,dens_im,kind=DP)
+          ! density_mat(ibnd1,ibnd,ik) = conjg(cmplx(dens_real,dens_im,kind=DP))
+          ! if (ibnd == ibnd1) then
+          !   density_mat(ibnd, ibnd,ik) = cmplx(dens_real, 0)
+          ! endif
+          !density_mat(ibnd1,ibnd,ik) = cmplx(dens_real,-dens_im,kind=DP)
+          !density_mat(ibnd, ibnd1, ik) = (1._dp, 0._dp)
+        enddo
+      enddo
+    else
+      do ibnd = 1, nbnd
+        density_mat(ibnd, ibnd, ik) = wg(ibnd,ik) / wk(ik)
+      enddo
+    endif
+  enddo
+  close(iun)
+  !endif
+  !CALL mp_bcast( density_mat, ionode_id, intra_bgrp_comm )
+  !CALL mp_bcast( density_mat, ionode_id, inter_pool_comm )
   !
   CALL allocate_bec_type_acc( nkb, nbnd, becp, intra_bgrp_comm )
   CALL allocate_bec_type_acc( nkb, nbnd, becd, intra_bgrp_comm )
   ALLOCATE( vkb1(npwx,nkb) )
   !$acc data create(vkb1)
-  ! 
+  !
   ! ... the forces are summed over K-points
   !
   DO ik = 1, nks
-     !
-     IF ( lsda ) current_spin = isk(ik)
      npw = ngk(ik)
-     !
-     IF ( nks > 1 ) THEN
-        CALL get_buffer( evc, nwordwfc, iunwfc, ik )
-        !$acc update device( evc )
-     ENDIF
+     ALLOCATE(overlap(nbnd, nbnd))
+     ALLOCATE(evc_old(npwx, nbnd))
+     overlap = (0.0_dp, 0.0_dp)
+     evc_old = (0.0_dp, 0.0_dp)
+     CALL read_collected_wfc ( "./results_old/SrVO3.save/", ik, evc_old )
      !
      IF ( nkb > 0 ) CALL init_us_2( npw, igk_k(1,ik), xk(1,ik), vkb, .TRUE. )
      !$acc data present (evc, vkb, becp)
-     CALL calbec( offload_type, npw, vkb, evc, becp )
+     CALL calbec( offload_type, npw, vkb, evc_old, becp )
      !$acc end data
      !
+    ! density_mat(:,:,ik) = (density_mat(:,:,ik) + TRANSPOSE(CONJG(density_mat(:,:,ik))))/2.
      DO ipol = 1, 3
-        !
-#if defined(_OPENACC)
-        !$acc parallel loop collapse(2) present(vkb, g, igk_k) 
-#else
-        !$omp parallel do collapse(2) private(ig)
-#endif
         DO jkb = 1, nkb
            DO ig = 1, npw
-              vkb1(ig,jkb) = vkb(ig,jkb) * (0.D0,-1.D0) * g(ipol,igk_k(ig,ik))
+              ! vkb1(ig,jkb) = vkb(ig,jkb) * (0.D0,-1.D0) * g(ipol,igk_k(ig,ik))
+              vkb1(ig,jkb) = vkb(ig,jkb) * (0.D0,-1.D0) * (g(ipol,igk_k(ig,ik)) + xk(ipol,ik))
            ENDDO
         ENDDO
-        !$acc data present (evc, becd)
-        CALL calbec( offload_type, npw, vkb1, evc, becd )
-        !$acc end data
-        !
+        CALL calbec( offload_type, npw, vkb1, evc_old, becd )
         ! becp = <beta|psi>, becd = <dbeta/dG_ipol|psi>
-        ! Now sum over bands and over projectors belonging to each atom
-        !
-        ! ... NOTE: calls to calbec are parallelized over the bgrp group
-        ! ... The rest of the calculation is parallelized by subdividing 
-        ! ... the atoms over the bgrp group
-        !
-        CALL block_distribute( nat, me_bgrp, nproc_bgrp, na_s, na_e, mykey )
-        !
-        IF ( mykey /= 0 ) CYCLE
-        !
-        !$acc data present(becp, becd, deeq, qq_at, deeq_nc, qq_so, et) copyin(wg) 
-        DO na = na_s, na_e
-           fnl = 0.0_dp
-           nt = ityp(na)
-           nhnt = nh(nt)
-           ijkb0 = ofsbeta(na)
-           IF ( gamma_only ) THEN
-              !$acc parallel loop collapse(3) present(becp%r,becd%r) reduction(+:fnl)
-              DO ibnd = 1, nbnd
-                 DO ih = 1, nhnt
-                    DO jh = 1, nhnt
-                       ikb = ijkb0 + ih
-                       jkb = ijkb0 + jh
-                       deff = deeq(ih,jh,na,current_spin) - &
-                            et(ibnd,ik) * qq_at(ih,jh,na)
-                       fnl = fnl + wg(ibnd,ik) * deff *  &
-                            becd%r(ikb,ibnd) * becp%r(jkb,ibnd)
-                    END DO
-                 END DO
+        DO na = 1, nat
+        fnl = 0.0_dp
+        nt = ityp(na)
+        nhnt = nh(nt)
+        ijkb0 = ofsbeta(na)
+        DO ibnd = 1, nbnd
+          DO ih = 1, nhnt
+            DO jh = 1, nhnt
+              ikb = ijkb0 + ih
+              jkb = ijkb0 + jh
+              deff = deeq(ih,jh,na,current_spin) !- et(ibnd,ik) * qq_at(ih,jh,na)
+              ! fnl = fnl + wg(ibnd,ik) * deff *  &
+              !      DBLE(CONJG(becp%k(ikb,ibnd)) * becd%k(jkb,ibnd))
+              DO ibnd1 = 1, nbnd
+                fnl = fnl + wk(ik) * deff *  &
+                DBLE(CONJG(becp%k(ikb,ibnd)) * &
+                becd%k(jkb,ibnd1) * density_mat(ibnd1, ibnd, ik) + &
+                CONJG(becd%k(ikb,ibnd)) * &
+                becp%k(jkb,ibnd1) * density_mat(ibnd1, ibnd, ik))/2.
               END DO
-           ELSE IF ( .NOT. noncolin ) THEN
-              !$acc parallel loop collapse(3) present(becp%k,becd%k) reduction(+:fnl)
-              DO ibnd = 1, nbnd
-                 DO ih = 1, nhnt
-                    DO jh = 1, nhnt
-                       ikb = ijkb0 + ih
-                       jkb = ijkb0 + jh
-                       deff = deeq(ih,jh,na,current_spin) - et(ibnd,ik) * qq_at(ih,jh,na)
-                       fnl = fnl + wg(ibnd,ik) * deff *  &
-                            DBLE(CONJG(becp%k(ikb,ibnd)) * becd%k(jkb,ibnd) )
-                    END DO
-                 END DO
-              END DO
-           ELSE
-              !$acc parallel loop collapse(3) present(becp%nc,becd%nc) reduction(+:fnl)
-              DO ibnd = 1, nbnd
-                 DO ih = 1, nhnt
-                    DO jh = 1, nhnt
-                       ikb = ijkb0 + ih
-                       jkb = ijkb0 + jh
-                       !$acc loop seq collapse(2)
-                       DO is = 1, npol
-                          DO js = 1, npol
-                             ijs = (is-1)*npol + js
-                             deff_nc = deeq_nc(ih,jh,na,ijs)
-                             IF ( lspinorb ) THEN
-                                deff_nc = deff_nc - et(ibnd,ik) * qq_so(ih,jh,ijs,nt)
-                             ELSE IF ( is == js ) THEN
-                                deff_nc = deff_nc - et(ibnd,ik) * qq_at(ih,jh,na)
-                             END IF
-                             fnl = fnl + wg(ibnd,ik) * DBLE ( &
-                                  deff_nc * CONJG(becp%nc(ikb,is,ibnd)) * &
-                                  becd%nc(jkb,js,ibnd) )
-                          END DO
-                       END DO
-                    END DO
-                 END DO
-              END DO
-           END IF
-           ! factor 2 from Ry a.u. (e^2=2)? tpiba from k+G, minus sign
-           forcenl(ipol,na) = forcenl(ipol,na) - 2.0_dp * tpiba* fnl
+            END DO
+          END DO
         END DO
-        !$acc end data
-        !
+        ! factor 2 from Ry a.u. (e^2=2)? tpiba from k+G, minus sign
+        forcenl(ipol,na) = forcenl(ipol,na) - 2.0_dp * tpiba* fnl
+        END DO
      ENDDO
+     DEALLOCATE(evc_old)
+     DEALLOCATE(overlap)
   ENDDO
   !
   !$acc end data
   DEALLOCATE( vkb1 )
   CALL deallocate_bec_type_acc( becd )
   CALL deallocate_bec_type_acc( becp )
-  !
-  ! ... collect contributions across processors and pools from all k-points
-  !
-  CALL mp_sum( forcenl, intra_bgrp_comm )
-  CALL mp_sum( forcenl, inter_pool_comm )
-  !
-  ! ... The total D matrix depends on the ionic position via the
-  ! ... augmentation part \int V_eff Q dr, the term deriving from the 
-  ! ... derivative of Q is added in the routine addusforce
-  !
-  CALL addusforce( forcenl )
-  !
-  ! ... Since our summation over k points was only on the irreducible 
-  ! ... BZ we have to symmetrize the forces.
-  !
-  CALL symvector( nat, forcenl )
   !
   RETURN
   !

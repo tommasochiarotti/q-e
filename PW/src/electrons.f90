@@ -931,6 +931,9 @@ SUBROUTINE electrons_scf ( printout, exxen )
            ! ... 2) vnew contains V(out)-V(in) ( used to correct the forces ).
            !
            vnew%of_r(:,:) = v%of_r(:,:)
+           !CALL v_of_rho( rho,rho_core,rhog_core, &
+           !               ehart, etxc, vtxc, eth, etotefield, charge, v )
+           !vnew%of_r(:,:) = v%of_r(:,:) - vnew%of_r(:,:)
            !
            IF (lda_plus_u .AND. lda_plus_u_kind.EQ.2) nsg = nsgnew
            !
@@ -948,6 +951,7 @@ SUBROUTINE electrons_scf ( printout, exxen )
            !               ehart, etxc, vtxc, eth, etotefield, charge, v )
            CALL v_of_rho( rhoin,rho_core,rhog_core, &
                    ehart, etxc, vtxc, eth, etotefield, charge, v )
+           CALL scf_type_COPY( rhoin, rho )
            !
            ! I also need deband to be computed with input density ...
            ! I am just taking the value used for the HWF energy 
