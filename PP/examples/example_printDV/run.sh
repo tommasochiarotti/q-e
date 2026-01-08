@@ -5,7 +5,7 @@ cat >SrVO3.scf.in << EOF
     calculation='scf'
     prefix = 'SrVO3'
     pseudo_dir = './PP'
-    outdir = 'results'
+    outdir = 'out'
     verbosity = 'high'
  /
  &system
@@ -13,7 +13,7 @@ cat >SrVO3.scf.in << EOF
     celldm(1) = 7.226
     nat = 5
     ntyp = 3
-    ecutwfc = 100
+    ecutwfc = 40
     occupations = 'smearing'
     smearing = 'mv'
     degauss = 0.02
@@ -36,7 +36,7 @@ K_POINTS {automatic}
 EOF
 
 echo -e "SCF ...\c"
-mpirun -np 4 /home/colonna_n/CODES/q-e_for-dyn-Hub/bin/pw.x -in SrVO3.scf.in > SrVO3.scf.out
+mpirun -np 4 /home/nicola/CODES/qe_dynH/bin/pw.x -in SrVO3.scf.in > SrVO3.scf.out
 echo -e " DONE"
 
 cat > SrVO3.bands.in <<EOF 
@@ -44,7 +44,7 @@ cat > SrVO3.bands.in <<EOF
     calculation='bands'
     prefix = 'SrVO3'
     pseudo_dir = './PP'
-    outdir = 'results'
+    outdir = 'out'
     verbosity = 'high'
  /
  &system
@@ -52,7 +52,7 @@ cat > SrVO3.bands.in <<EOF
     celldm(1) = 7.226
     nat = 5
     ntyp = 3
-    ecutwfc = 100
+    ecutwfc = 40
     occupations = 'smearing'
     smearing = 'mv'
     degauss = 0.02
@@ -76,17 +76,17 @@ EOF
 
 
 echo -e "BANDS ...\c"
-mpirun -np 4 /home/colonna_n/CODES/q-e_for-dyn-Hub/bin/pw.x -in SrVO3.bands.in > SrVO3.bands.out
+mpirun -np 4 /home/nicola/CODES/qe_dynH/bin/pw.x -in SrVO3.bands.in > SrVO3.bands.out
 echo -e " DONE"
 
 cat > print_dV.in <<EOF
 &pp
    prefix='SrVO3'
-   outdir='./results'
+   outdir='./out'
 /
 EOF
 
 echo -e "Print DV ...\c"
-/home/colonna_n/CODES/q-e_for-dyn-Hub/bin/print_deltaV.x -in print_dV.in > print_dV.out
+/home/nicola/CODES/qe_dynH/bin/print_deltaV.x -in print_dV.in > print_dV.out
 echo -e " DONE"
 

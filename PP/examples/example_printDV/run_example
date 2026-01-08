@@ -1,0 +1,178 @@
+#!/bin/sh
+
+# run from directory where this script is
+cd `echo $0 | sed 's/\(.*\)\/.*/\1/'` # extract pathname
+EXAMPLE_DIR=`pwd`
+
+# check whether echo has the -e option
+if test "`echo -e`" = "-e" ; then ECHO=echo ; else ECHO="echo -e" ; fi
+
+$ECHO
+$ECHO "$EXAMPLE_DIR : starting"
+$ECHO
+$ECHO "This example shows how to use print_deltaV.x to print out the "
+$ECHO "perturbing potentail at a given wave vector q in the KS basis." 
+$ECHO "This is used for the interface with the GFPT code"
+
+# set the needed environment variables
+. ../../../environment_variables
+
+# required executables and pseudopotentials
+BIN_LIST="pw.x print_deltaV.x"
+PSEUDO_LIST="O.upf  Sr.upf  V.upf"
+
+PSEUDO_DIR=`pwd`/PP
+
+$ECHO
+$ECHO "  executables directory: $BIN_DIR"
+$ECHO "  pseudo directory:      $PSEUDO_DIR"
+$ECHO "  temporary directory:   $TMP_DIR"
+$ECHO "  checking that needed directories and files exist...\c"
+
+
+# check for directories
+for DIR in "$BIN_DIR" "$PSEUDO_DIR" ; do
+    if test ! -d $DIR ; then
+        $ECHO
+        $ECHO "ERROR: $DIR not existent or not a directory"
+        $ECHO "Aborting"
+        exit 1
+    fi
+done
+for DIR in "$TMP_DIR" "$EXAMPLE_DIR/results" ; do
+    if test ! -d $DIR ; then
+        mkdir $DIR
+    fi
+done
+cd $EXAMPLE_DIR/results
+
+# check for executables
+for FILE in $BIN_LIST ; do
+    if test ! -x $BIN_DIR/$FILE ; then
+        $ECHO
+        $ECHO "ERROR: $BIN_DIR/$FILE not existent or not executable"
+        $ECHO "Aborting"
+        exit 1
+    fi
+done
+
+# check for pseudopotentials
+for FILE in $PSEUDO_LIST ; do
+    if test ! -r $PSEUDO_DIR/$FILE ; then
+       $ECHO
+       $ECHO "Downloading $FILE to $PSEUDO_DIR...\c"
+            $WGET $PSEUDO_DIR/$FILE $NETWORK_PSEUDO/$FILE 2> /dev/null
+    fi
+    if test $? != 0; then
+        $ECHO
+        $ECHO "ERROR: $PSEUDO_DIR/$FILE not existent or not readable"
+        $ECHO "Aborting"
+        exit 1
+    fi
+done
+$ECHO " done"
+
+# how to run executables
+PW_COMMAND="$PARA_PREFIX $BIN_DIR/pw.x $PARA_POSTFIX"
+PP_COMMAND="$BIN_DIR/print_deltaV.x"
+$ECHO
+$ECHO "  running pw.x as:             $PW_COMMAND"
+$ECHO "  running print_DeltaV.x as:   $PP_COMMAND"
+$ECHO
+
+# self-consistent calculation
+cat >SrVO3.scf.in << EOF
+ &control
+    calculation='scf'
+    prefix = 'SrVO3'
+    pseudo_dir = '$PSEUDO_DIR/'
+    outdir = '$TMP_DIR/'
+    verbosity = 'high'
+ /
+ &system
+    ibrav = 1
+    celldm(1) = 7.226
+    nat = 5
+    ntyp = 3
+    ecutwfc = 40
+    occupations = 'smearing'
+    smearing = 'mv'
+    degauss = 0.02
+ /
+ &electrons
+    conv_thr =  1.0d-12
+ /
+ATOMIC_SPECIES
+ Sr  87.62    Sr.upf
+ V   50.942   V.upf
+ O   15.999   O.upf
+ATOMIC_POSITIONS {crystal}
+ V   0.000  0.000  0.000
+ O   0.500  0.000  0.000
+ O   0.000  0.500  0.000
+ O   0.000  0.000  0.500
+ Sr  0.500  0.500  0.500
+K_POINTS {automatic}
+ 6 6 6   0 0 0
+EOF
+
+$ECHO "  running the scf calculation...\c"
+$PW_COMMAND < SrVO3.scf.in > SrVO3.scf.out
+$ECHO " done"
+
+# Band calculation at k and k+q
+cat > SrVO3.bands.in <<EOF 
+ &control
+    calculation='bands'
+    prefix = 'SrVO3'
+    pseudo_dir = '$PSEUDO_DIR/'
+    outdir = '$TMP_DIR'
+    verbosity = 'high'
+ /
+ &system
+    ibrav = 1
+    celldm(1) = 7.226
+    nat = 5
+    ntyp = 3
+    ecutwfc = 40
+    occupations = 'smearing'
+    smearing = 'mv'
+    degauss = 0.02
+    nbnd = 40
+ /
+ &electrons
+    conv_thr =  1.0d-12
+ /
+ATOMIC_SPECIES
+ Sr  87.62    Sr.upf
+ V   50.942   V.upf
+ O   15.999   O.upf
+ATOMIC_POSITIONS {crystal}
+ V   0.000  0.000  0.000
+ O   0.500  0.000  0.000
+ O   0.000  0.500  0.000
+ O   0.000  0.000  0.500
+ Sr  0.500  0.500  0.500
+$(sh ../kmesh.sh 0.1 0.1 0.1)
+EOF
+
+$ECHO "  running the bands calculation (q=0.1 0.1 0.1) ...\c"
+$PW_COMMAND < SrVO3.bands.in > SrVO3.bands.out
+check_failure $?
+$ECHO " done"
+
+
+cat > print_dV.in <<EOF
+&pp
+   prefix='SrVO3'
+   outdir = '$TMP_DIR'
+/
+EOF
+
+$ECHO "  running print_DeltaV.x ...\c"
+$PP_COMMAND < print_dV.in > print_dV.out
+
+$ECHO " done"
+
+$ECHO
+$ECHO "$EXAMPLE_DIR: done"
