@@ -398,7 +398,7 @@ PROGRAM do_chargedens_fromfile
         ENDDO
       ENDDO
     ENDIF
-    if (output_psink) call print_psic(iun,ik,nbnd,dffts%nnr,dffts%nr1x,dffts%nr2x,dffts%nr3x,psic_nc_nbnd(:,1,:))
+    if (output_psink) call print_psic(iun,ik,nbnd,dffts%nnr,dffts%nr1x,dffts%nr2x,dffts%nr3x,psic_nc_nbnd(:,1,:)/sqrt(omega))
   ENDDO
   IF (gamma_only) THEN
      DEALLOCATE(rbecp)
